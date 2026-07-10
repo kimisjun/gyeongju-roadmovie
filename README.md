@@ -48,7 +48,8 @@ python3 -m http.server 8080
 ├── map.js
 ├── pickem.js
 ├── assets/
-│   ├── road-trip.jpg
+│   ├── gyeongju-donggung-wolji.jpg
+│   ├── gyeongju-cheomseongdae.jpg
 │   ├── leaflet.css
 │   └── leaflet.js
 └── README.md
@@ -58,4 +59,4 @@ python3 -m http.server 8080
 
 - 지도 데이터: © OpenStreetMap contributors
 - 경로 계산: OSRM public demo server
-- 히어로 사진: Unsplash (`photo-1449824913935-59a10b8d2000`)
+- 히어로 사진: 사용자가 제공한 경주 동궁과 월지·첨성대 사진
