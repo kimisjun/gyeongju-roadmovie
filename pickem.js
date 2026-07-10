@@ -4,6 +4,7 @@
   const SUPABASE_URL = 'https://oxarwtguzggvhhrvhkfw.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_XXuJ31qhhA_-JCJOS8Qdng_i5aiMKig';
   const SESSION_KEY = 'gj-pickem-session-v1';
+  const DINNER_KEY = 'gj-pickem-dinner-total-v1';
   const POLL_MS = 5000;
   const els = {};
   let state = null;
@@ -13,6 +14,11 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const getSession = () => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
   const saveSession = value => { session = value; if (value) sessionStorage.setItem(SESSION_KEY, JSON.stringify(value)); else sessionStorage.removeItem(SESSION_KEY); };
+  const getDinnerTotal = () => {
+    const value = Number(localStorage.getItem(DINNER_KEY));
+    return Number.isSafeInteger(value) && value > 0 ? value : 0;
+  };
+  const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
 
   async function rpc(name, payload) {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
@@ -154,8 +160,9 @@
 
   function renderSettlement() {
     const completed = state.events.filter(event => event.status === 'completed' && event.winner);
+    const dinnerTotal = getDinnerTotal();
     if (!completed.length) {
-      els.settlement.innerHTML = '<p class="muted">경기 결과가 확정되면 점수와 저녁값 부담 비율이 자동 계산됩니다.</p>';
+      els.settlement.innerHTML = `<p class="muted">경기 결과가 확정되면 점수와 저녁값 부담 비율이 자동 계산됩니다.${dinnerTotal ? `<br>저장된 총액: <b>${won(dinnerTotal)}</b>` : ''}</p>`;
       return;
     }
     const scores = Object.fromEntries(state.players.map(player => [player.slug, {name: player.name, points: 0, correct: 0}]));
@@ -170,10 +177,41 @@
     const rows = Object.values(scores);
     const weights = rows.map(row => 1 / (1 + row.points));
     const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    const shares = weights.map(value => totalWeight ? value / totalWeight : 1 / rows.length);
+    const amounts = allocateWon(dinnerTotal, shares);
     els.settlement.innerHTML = rows.map((row, index) => {
-      const share = totalWeight ? weights[index] / totalWeight * 100 : 25;
-      return `<article><span class="eyebrow">${esc(row.correct)} CORRECT</span><b>${esc(row.name)}</b><strong>${share.toFixed(1)}%</strong><small>${row.points.toFixed(2)}점</small></article>`;
+      const share = shares[index] * 100;
+      return `<article><span class="eyebrow">${esc(row.correct)} CORRECT</span><b>${esc(row.name)}</b><strong>${share.toFixed(1)}%</strong>${dinnerTotal ? `<em>${won(amounts[index])}</em>` : ''}<small>${row.points.toFixed(2)}점</small></article>`;
     }).join('');
+  }
+
+  function allocateWon(total, shares) {
+    if (!total) return shares.map(() => 0);
+    const exact = shares.map(share => total * share);
+    const amounts = exact.map(Math.floor);
+    let remainder = total - amounts.reduce((sum, value) => sum + value, 0);
+    exact.map((value, index) => ({index, fraction: value - amounts[index]}))
+      .sort((a, b) => b.fraction - a.fraction)
+      .slice(0, remainder)
+      .forEach(item => { amounts[item.index] += 1; });
+    return amounts;
+  }
+
+  function onDinnerSubmit(event) {
+    event.preventDefault();
+    const digits = els.dinnerInput.value.replace(/[^0-9]/g, '');
+    const total = Number(digits);
+    if (!Number.isSafeInteger(total) || total <= 0) {
+      els.dinnerState.textContent = '1원 이상의 총 결제 금액을 입력해 주세요.';
+      els.dinnerState.classList.add('error');
+      els.dinnerInput.focus();
+      return;
+    }
+    localStorage.setItem(DINNER_KEY, String(total));
+    els.dinnerInput.value = total.toLocaleString('ko-KR');
+    els.dinnerState.textContent = `${won(total)} 저장 완료 · 이 브라우저에 보관됩니다.`;
+    els.dinnerState.classList.remove('error');
+    renderSettlement();
   }
 
   function setupAdmin() {
@@ -236,12 +274,23 @@
     els.loginState = document.querySelector('[data-login-state]');
     els.events = document.querySelector('[data-events]');
     els.settlement = document.querySelector('[data-settlement]');
+    els.dinnerForm = document.querySelector('[data-dinner-form]');
+    els.dinnerInput = els.dinnerForm.dinnerTotal;
+    els.dinnerState = document.querySelector('[data-dinner-state]');
     els.sync = document.querySelector('[data-sync-state]');
     els.admin = document.querySelector('[data-admin-zone]');
     els.adminForm = document.querySelector('[data-admin-form]');
     els.adminEvent = els.adminForm.event;
     session = getSession();
     els.loginForm.addEventListener('submit', onLogin);
+    els.dinnerForm.addEventListener('submit', onDinnerSubmit);
+    els.dinnerInput.addEventListener('focus', () => { els.dinnerInput.value = els.dinnerInput.value.replace(/[^0-9]/g, ''); });
+    els.dinnerInput.addEventListener('blur', () => { const value = Number(els.dinnerInput.value.replace(/[^0-9]/g, '')); els.dinnerInput.value = value ? value.toLocaleString('ko-KR') : ''; });
+    const savedDinnerTotal = getDinnerTotal();
+    if (savedDinnerTotal) {
+      els.dinnerInput.value = savedDinnerTotal.toLocaleString('ko-KR');
+      els.dinnerState.textContent = `${won(savedDinnerTotal)} 저장됨 · 금액을 바꾸면 다시 저장해 주세요.`;
+    }
     document.querySelector('[data-refresh]').addEventListener('click', () => loadState());
     els.adminForm.addEventListener('submit', onAdminSubmit);
     loadState();
