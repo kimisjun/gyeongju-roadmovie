@@ -51,13 +51,12 @@
     try {
       const credentials = session || {};
       state = await rpc('pickem_get_state', {
-        p_player_slug: credentials.player || null,
-        p_pin: credentials.pin || null
+        p_player_slug: credentials.player || null
       });
       if (session && !state.player_valid) {
         saveSession(null);
-        state = await rpc('pickem_get_state', {p_player_slug: null, p_pin: null});
-        showMessage('PIN이 맞지 않아 공개 모드로 전환했습니다.', true);
+        state = await rpc('pickem_get_state', {p_player_slug: null});
+        showMessage('선택한 이름을 찾지 못해 공개 모드로 전환했습니다.', true);
       }
       populatePlayers();
       render();
@@ -90,11 +89,10 @@
     const current = state.players.find(player => player.slug === session?.player);
     if (state.player_valid && current) {
       showMessage(`${current.name}으로 입장 중 · 경기 전까지 선택 변경 가능`);
-      els.loginForm.querySelector('button').textContent = '다시 인증';
+      els.loginForm.querySelector('button').textContent = '이름 변경';
       els.player.value = current.slug;
-      els.pin.value = session.pin;
     } else {
-      showMessage('공개 모드 · 예측하려면 이름과 PIN으로 입장하세요.');
+      showMessage('공개 모드 · 이름을 선택하면 바로 예측할 수 있습니다.');
     }
     els.events.innerHTML = state.events.map(renderEvent).join('');
     bindPickButtons();
@@ -120,7 +118,7 @@
       ? `<div class="event-notice">${esc(event.source_note || '공식 일정 확정 대기')}</div>`
       : event.status === 'cancelled' ? '<div class="event-notice">취소된 경기입니다.</div>'
       : event.locked ? '<div class="event-notice locked">경기가 시작되어 선택이 공개됐습니다.</div>'
-      : `<div class="event-notice">${state.player_valid ? '선택 버튼을 다시 누르면 경기 전까지 변경할 수 있습니다.' : 'PIN으로 입장하면 예측할 수 있습니다.'}</div>`;
+      : `<div class="event-notice">${state.player_valid ? '선택 버튼을 다시 누르면 경기 전까지 변경할 수 있습니다.' : '이름을 선택하면 예측할 수 있습니다.'}</div>`;
     return `<article class="pickem-card ${event.status}">
       <div class="pickem-card-head"><div><span class="eyebrow red">${esc(event.category)}</span><h3>${esc(event.title)}</h3></div><span class="event-status ${event.locked ? 'locked' : ''}">${statusText(event)}</span></div>
       <div class="event-time"><b>${esc(koreanTime(event.starts_at))}</b><span>${esc(countdown(event.starts_at))}</span></div>
@@ -140,7 +138,6 @@
         try {
           await rpc('pickem_submit_pick', {
             p_player_slug: session.player,
-            p_pin: session.pin,
             p_event_slug: button.dataset.event,
             p_selection: button.dataset.selection
           });
@@ -225,8 +222,8 @@
   async function onLogin(event) {
     event.preventDefault();
     const form = new FormData(els.loginForm);
-    const candidate = {player: form.get('player'), pin: String(form.get('pin')).trim()};
-    if (!candidate.player || !candidate.pin) return;
+    const candidate = {player: form.get('player')};
+    if (!candidate.player) return;
     saveSession(candidate);
     await loadState();
     if (!state?.player_valid) saveSession(null);
@@ -235,7 +232,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     els.loginForm = document.querySelector('[data-login-form]');
     els.player = els.loginForm.player;
-    els.pin = els.loginForm.pin;
+
     els.loginState = document.querySelector('[data-login-state]');
     els.events = document.querySelector('[data-events]');
     els.settlement = document.querySelector('[data-settlement]');
