@@ -3,7 +3,6 @@
 
   const SUPABASE_URL = 'https://oxarwtguzggvhhrvhkfw.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_XXuJ31qhhA_-JCJOS8Qdng_i5aiMKig';
-  const SESSION_KEY = 'gj-pickem-session-v1';
   const DINNER_KEY = 'gj-pickem-dinner-total-v1';
   const POLL_MS = 5000;
   const els = {};
@@ -12,8 +11,7 @@
   let pollTimer = null;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-  const getSession = () => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
-  const saveSession = value => { session = value; if (value) sessionStorage.setItem(SESSION_KEY, JSON.stringify(value)); else sessionStorage.removeItem(SESSION_KEY); };
+  const saveSession = value => { session = value; };
   const getDinnerTotal = () => {
     const value = Number(localStorage.getItem(DINNER_KEY));
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -62,7 +60,7 @@
       if (session && !state.player_valid) {
         saveSession(null);
         state = await rpc('pickem_get_state', {p_player_slug: null});
-        showMessage('선택한 이름을 찾지 못해 공개 모드로 전환했습니다.', true);
+        showMessage('선택한 이름을 찾지 못했습니다. 다시 선택해 주세요.', true);
       }
       populatePlayers();
       render();
@@ -86,20 +84,23 @@
   }
 
   function populatePlayers() {
-    if (!state || els.player.options.length > 1) return;
-    state.players.forEach(player => els.player.add(new Option(player.name, player.slug)));
+    if (!state || els.playerGrid.dataset.ready) return;
+    els.playerGrid.innerHTML = state.players.map(player => `<button type="button" data-player="${esc(player.slug)}"><span class="eyebrow">PLAYER</span><b>${esc(player.name)}</b><small>이 이름으로 입장 →</small></button>`).join('');
+    els.playerGrid.dataset.ready = 'true';
+    els.playerGrid.querySelectorAll('[data-player]').forEach(button => button.addEventListener('click', () => onLogin(button.dataset.player)));
   }
 
   function render() {
     if (!state) return;
     const current = state.players.find(player => player.slug === session?.player);
-    if (state.player_valid && current) {
-      showMessage(`${current.name}으로 입장 중 · 경기 전까지 선택 변경 가능`);
-      els.loginForm.querySelector('button').textContent = '이름 변경';
-      els.player.value = current.slug;
-    } else {
-      showMessage('공개 모드 · 이름을 선택하면 바로 예측할 수 있습니다.');
+    const loggedIn = Boolean(state.player_valid && current);
+    els.gate.hidden = loggedIn;
+    els.app.hidden = !loggedIn;
+    if (!loggedIn) {
+      showMessage('내 이름을 선택해 경주토토에 입장하세요.');
+      return;
     }
+    els.currentPlayer.textContent = `${current.name}으로 입장 중`;
     els.events.innerHTML = state.events.map(renderEvent).join('');
     bindPickButtons();
     renderSettlement();
@@ -147,11 +148,11 @@
             p_event_slug: button.dataset.event,
             p_selection: button.dataset.selection
           });
-          showMessage(`${button.dataset.selection} 선택을 저장했습니다.`);
+          window.GJRM?.toast(`${button.dataset.selection} 선택을 저장했습니다.`);
           await loadState({quiet: true});
         } catch (error) {
           const locked = /PICK_LOCKED/.test(error.message);
-          showMessage(locked ? '경기가 시작되어 예측이 잠겼습니다.' : '선택을 저장하지 못했습니다.', true);
+          window.GJRM?.toast(locked ? '경기가 시작되어 예측이 잠겼습니다.' : '선택을 저장하지 못했습니다.');
           await loadState({quiet: true});
         }
       });
@@ -257,21 +258,33 @@
     }
   }
 
-  async function onLogin(event) {
-    event.preventDefault();
-    const form = new FormData(els.loginForm);
-    const candidate = {player: form.get('player')};
-    if (!candidate.player) return;
-    saveSession(candidate);
+  async function onLogin(player) {
+    if (!player) return;
+    showMessage('경주토토에 입장하는 중…');
+    els.playerGrid.querySelectorAll('button').forEach(button => { button.disabled = true; });
+    saveSession({player});
     await loadState();
-    if (!state?.player_valid) saveSession(null);
+    if (!state?.player_valid) {
+      saveSession(null);
+      els.playerGrid.querySelectorAll('button').forEach(button => { button.disabled = false; });
+    }
+  }
+
+  async function changePlayer() {
+    saveSession(null);
+    els.app.hidden = true;
+    els.gate.hidden = false;
+    els.playerGrid.querySelectorAll('button').forEach(button => { button.disabled = false; });
+    showMessage('다른 이름을 선택해 주세요.');
+    await loadState({quiet: true});
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    els.loginForm = document.querySelector('[data-login-form]');
-    els.player = els.loginForm.player;
-
+    els.gate = document.querySelector('[data-toto-gate]');
+    els.app = document.querySelector('[data-toto-app]');
+    els.playerGrid = document.querySelector('[data-player-grid]');
     els.loginState = document.querySelector('[data-login-state]');
+    els.currentPlayer = document.querySelector('[data-current-player]');
     els.events = document.querySelector('[data-events]');
     els.settlement = document.querySelector('[data-settlement]');
     els.dinnerForm = document.querySelector('[data-dinner-form]');
@@ -281,8 +294,8 @@
     els.admin = document.querySelector('[data-admin-zone]');
     els.adminForm = document.querySelector('[data-admin-form]');
     els.adminEvent = els.adminForm.event;
-    session = getSession();
-    els.loginForm.addEventListener('submit', onLogin);
+    session = null;
+    document.querySelector('[data-change-player]').addEventListener('click', changePlayer);
     els.dinnerForm.addEventListener('submit', onDinnerSubmit);
     els.dinnerInput.addEventListener('focus', () => { els.dinnerInput.value = els.dinnerInput.value.replace(/[^0-9]/g, ''); });
     els.dinnerInput.addEventListener('blur', () => { const value = Number(els.dinnerInput.value.replace(/[^0-9]/g, '')); els.dinnerInput.value = value ? value.toLocaleString('ko-KR') : ''; });
