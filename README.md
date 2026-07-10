@@ -6,6 +6,7 @@
 
 - `index.html` — DAY 01/02 일정, 출발 카운트다운, 멤버 합류 상태, 준비 체크리스트, 비용 범위
 - `map.html` — Leaflet + OpenStreetMap 경로 지도, DAY 01/02 전환, OSRM 도로 경로와 직선 폴백
+- `pickem.html` — 네 명의 경기 승자 예측, 경기 시작 잠금, 선택 인원 기반 역배 배율과 저녁값 정산
 - `plan-b.html` — 지연·우천·입수 통제 시나리오 선택 및 여행 메모 편집
 
 ## 로컬 실행
@@ -26,6 +27,8 @@ python3 -m http.server 8080
 ## 데이터와 네트워크
 
 - 체크리스트, 활성 PLAN B, 사용자 메모는 브라우저 `localStorage`에만 저장됩니다. 다른 기기와 동기화되지 않습니다.
+- PICK’EM 예측은 Supabase에 동기화됩니다. 개인 PIN은 저장소에 포함하지 않고 별도 Obsidian 노트에서 관리합니다.
+- 경기 전에는 본인 선택만 조회할 수 있고, 경기 시작 후 선택 인원·이름·역배 배율이 공개됩니다. DB 서버 시각을 기준으로 잠깁니다.
 - 지도는 프로젝트에 포함된 Leaflet 1.9.4 CSS/JS와 OpenStreetMap 타일을 사용합니다.
 - 도로 경로는 공개 OSRM 데모 서버에서 동적으로 요청합니다. 요청 실패 시 좌표 사이를 잇는 붉은 점선으로 자동 대체합니다.
 - Google Fonts가 차단돼도 시스템 폰트로 사용할 수 있습니다. 히어로 로드트립 사진은 프로젝트에 포함돼 있습니다.
@@ -37,11 +40,13 @@ python3 -m http.server 8080
 .
 ├── index.html
 ├── map.html
+├── pickem.html
 ├── plan-b.html
 ├── 404.html
 ├── styles.css
 ├── app.js
 ├── map.js
+├── pickem.js
 ├── assets/
 │   ├── road-trip.jpg
 │   ├── leaflet.css

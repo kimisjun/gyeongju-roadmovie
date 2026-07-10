@@ -1,0 +1,254 @@
+(() => {
+  'use strict';
+
+  const SUPABASE_URL = 'https://oxarwtguzggvhhrvhkfw.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_XXuJ31qhhA_-JCJOS8Qdng_i5aiMKig';
+  const SESSION_KEY = 'gj-pickem-session-v1';
+  const POLL_MS = 5000;
+  const els = {};
+  let state = null;
+  let session = null;
+  let pollTimer = null;
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const getSession = () => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } };
+  const saveSession = value => { session = value; if (value) sessionStorage.setItem(SESSION_KEY, JSON.stringify(value)); else sessionStorage.removeItem(SESSION_KEY); };
+
+  async function rpc(name, payload) {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
+    return body;
+  }
+
+  const statusText = event => {
+    if (event.status === 'completed') return 'RESULT';
+    if (event.status === 'cancelled') return 'CANCELLED';
+    if (event.status === 'unconfirmed') return 'TO BE CONFIRMED';
+    return event.locked ? 'LOCKED' : 'OPEN';
+  };
+
+  const koreanTime = iso => iso ? new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit'
+  }).format(new Date(iso)) : '일정 미확정';
+
+  const countdown = iso => {
+    if (!iso) return '공식 일정 발표 대기';
+    let diff = new Date(iso).getTime() - Date.now();
+    if (diff <= 0) return '예측 마감';
+    const days = Math.floor(diff / 86400000); diff %= 86400000;
+    const hours = Math.floor(diff / 3600000); diff %= 3600000;
+    const mins = Math.floor(diff / 60000);
+    return `${days ? `${days}일 ` : ''}${hours}시간 ${mins}분 후 마감`;
+  };
+
+  async function loadState({quiet = false} = {}) {
+    if (!quiet) setSync('불러오는 중');
+    try {
+      const credentials = session || {};
+      state = await rpc('pickem_get_state', {
+        p_player_slug: credentials.player || null,
+        p_pin: credentials.pin || null
+      });
+      if (session && !state.player_valid) {
+        saveSession(null);
+        state = await rpc('pickem_get_state', {p_player_slug: null, p_pin: null});
+        showMessage('PIN이 맞지 않아 공개 모드로 전환했습니다.', true);
+      }
+      populatePlayers();
+      render();
+      setSync('5초마다 자동 갱신');
+    } catch (error) {
+      setSync('연결 실패', true);
+      if (!quiet) showMessage('예측 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', true);
+      console.error(error);
+    }
+  }
+
+  function setSync(text, error = false) {
+    if (!els.sync) return;
+    els.sync.textContent = text;
+    els.sync.parentElement.classList.toggle('error', error);
+  }
+
+  function showMessage(text, error = false) {
+    els.loginState.textContent = text;
+    els.loginState.classList.toggle('error', error);
+  }
+
+  function populatePlayers() {
+    if (!state || els.player.options.length > 1) return;
+    state.players.forEach(player => els.player.add(new Option(player.name, player.slug)));
+  }
+
+  function render() {
+    if (!state) return;
+    const current = state.players.find(player => player.slug === session?.player);
+    if (state.player_valid && current) {
+      showMessage(`${current.name}으로 입장 중 · 경기 전까지 선택 변경 가능`);
+      els.loginForm.querySelector('button').textContent = '다시 인증';
+      els.player.value = current.slug;
+      els.pin.value = session.pin;
+    } else {
+      showMessage('공개 모드 · 예측하려면 이름과 PIN으로 입장하세요.');
+    }
+    els.events.innerHTML = state.events.map(renderEvent).join('');
+    bindPickButtons();
+    renderSettlement();
+    setupAdmin();
+  }
+
+  function renderEvent(event) {
+    const canPick = state.player_valid && event.status === 'scheduled' && !event.locked;
+    const options = [event.option_a, event.option_b].filter(Boolean);
+    const pickButtons = options.map(option => {
+      const active = event.own_selection === option;
+      const count = Number(event.counts?.[option] || 0);
+      const odd = event.odds?.[option];
+      const names = (event.picks || []).filter(pick => pick.selection === option).map(pick => pick.player);
+      const result = event.status === 'completed' && event.winner === option;
+      return `<button class="pick-option${active ? ' active' : ''}${result ? ' winner' : ''}" type="button" data-event="${esc(event.slug)}" data-selection="${esc(option)}" ${canPick ? '' : 'disabled'}>
+        <span class="pick-mark">${result ? 'WINNER' : active ? 'MY PICK' : 'PICK'}</span><b>${esc(option)}</b>
+        ${event.locked || event.status === 'completed' ? `<span class="pick-odd">${count}명 · ${odd ? `×${esc(odd)}` : '—'}</span><small>${names.length ? esc(names.join(' · ')) : '선택 없음'}</small>` : '<span class="pick-odd">선택하기</span>'}
+      </button>`;
+    }).join('');
+    const notice = event.status === 'unconfirmed'
+      ? `<div class="event-notice">${esc(event.source_note || '공식 일정 확정 대기')}</div>`
+      : event.status === 'cancelled' ? '<div class="event-notice">취소된 경기입니다.</div>'
+      : event.locked ? '<div class="event-notice locked">경기가 시작되어 선택이 공개됐습니다.</div>'
+      : `<div class="event-notice">${state.player_valid ? '선택 버튼을 다시 누르면 경기 전까지 변경할 수 있습니다.' : 'PIN으로 입장하면 예측할 수 있습니다.'}</div>`;
+    return `<article class="pickem-card ${event.status}">
+      <div class="pickem-card-head"><div><span class="eyebrow red">${esc(event.category)}</span><h3>${esc(event.title)}</h3></div><span class="event-status ${event.locked ? 'locked' : ''}">${statusText(event)}</span></div>
+      <div class="event-time"><b>${esc(koreanTime(event.starts_at))}</b><span>${esc(countdown(event.starts_at))}</span></div>
+      <div class="pick-progress"><span>제출 ${esc(event.submitted_count)} / ${state.players.length}</span><i style="--progress:${state.players.length ? Number(event.submitted_count) / state.players.length * 100 : 0}%"></i></div>
+      <div class="pick-options">${pickButtons || '<p class="muted">선택지가 아직 없습니다.</p>'}</div>
+      ${notice}
+      <div class="event-source"><span>${esc(event.subtitle || '')}</span>${event.source_url ? `<a href="${esc(event.source_url)}" target="_blank" rel="noopener">공식 일정 ↗</a>` : ''}</div>
+    </article>`;
+  }
+
+  function bindPickButtons() {
+    els.events.querySelectorAll('[data-event][data-selection]:not(:disabled)').forEach(button => {
+      button.addEventListener('click', async () => {
+        if (!session) return;
+        button.disabled = true;
+        setSync('선택 저장 중');
+        try {
+          await rpc('pickem_submit_pick', {
+            p_player_slug: session.player,
+            p_pin: session.pin,
+            p_event_slug: button.dataset.event,
+            p_selection: button.dataset.selection
+          });
+          showMessage(`${button.dataset.selection} 선택을 저장했습니다.`);
+          await loadState({quiet: true});
+        } catch (error) {
+          const locked = /PICK_LOCKED/.test(error.message);
+          showMessage(locked ? '경기가 시작되어 예측이 잠겼습니다.' : '선택을 저장하지 못했습니다.', true);
+          await loadState({quiet: true});
+        }
+      });
+    });
+  }
+
+  function renderSettlement() {
+    const completed = state.events.filter(event => event.status === 'completed' && event.winner);
+    if (!completed.length) {
+      els.settlement.innerHTML = '<p class="muted">경기 결과가 확정되면 점수와 저녁값 부담 비율이 자동 계산됩니다.</p>';
+      return;
+    }
+    const scores = Object.fromEntries(state.players.map(player => [player.slug, {name: player.name, points: 0, correct: 0}]));
+    completed.forEach(event => {
+      const multiplier = Number(event.odds?.[event.winner] || 0);
+      (event.picks || []).filter(pick => pick.selection === event.winner).forEach(pick => {
+        if (!scores[pick.player_slug]) return;
+        scores[pick.player_slug].points += multiplier;
+        scores[pick.player_slug].correct += 1;
+      });
+    });
+    const rows = Object.values(scores);
+    const weights = rows.map(row => 1 / (1 + row.points));
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    els.settlement.innerHTML = rows.map((row, index) => {
+      const share = totalWeight ? weights[index] / totalWeight * 100 : 25;
+      return `<article><span class="eyebrow">${esc(row.correct)} CORRECT</span><b>${esc(row.name)}</b><strong>${share.toFixed(1)}%</strong><small>${row.points.toFixed(2)}점</small></article>`;
+    }).join('');
+  }
+
+  function setupAdmin() {
+    if (!new URLSearchParams(location.search).has('admin') || els.admin.dataset.ready) return;
+    els.admin.hidden = false;
+    els.admin.dataset.ready = 'true';
+    state.events.forEach(event => els.adminEvent.add(new Option(event.title, event.slug)));
+    const fill = () => {
+      const event = state.events.find(item => item.slug === els.adminEvent.value);
+      if (!event) return;
+      els.adminForm.optionA.value = event.option_a || '';
+      els.adminForm.optionB.value = event.option_b || '';
+      els.adminForm.startsAt.value = event.starts_at ? new Date(new Date(event.starts_at).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,16) : '';
+      els.adminForm.status.value = event.status;
+      fillWinner(event.winner || '');
+    };
+    const fillWinner = selected => {
+      const values = ['', els.adminForm.optionA.value, els.adminForm.optionB.value].filter((v, i, a) => a.indexOf(v) === i);
+      els.adminForm.winner.innerHTML = values.map(value => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${value || '미입력'}</option>`).join('');
+    };
+    els.adminEvent.addEventListener('change', fill);
+    els.adminForm.optionA.addEventListener('input', () => fillWinner(''));
+    els.adminForm.optionB.addEventListener('input', () => fillWinner(''));
+    fill();
+  }
+
+  async function onAdminSubmit(event) {
+    event.preventDefault();
+    const form = new FormData(els.adminForm);
+    try {
+      await rpc('pickem_admin_update_event', {
+        p_admin_pin: form.get('adminPin'), p_event_slug: form.get('event'),
+        p_option_a: form.get('optionA'), p_option_b: form.get('optionB'),
+        p_starts_at: form.get('startsAt') ? new Date(form.get('startsAt')).toISOString() : null,
+        p_status: form.get('status'), p_winner: form.get('winner') || null
+      });
+      window.GJRM?.toast('경기 정보를 저장했습니다.');
+      els.adminForm.adminPin.value = '';
+      await loadState();
+    } catch (error) {
+      window.GJRM?.toast('운영자 정보 저장에 실패했습니다.');
+      console.error(error);
+    }
+  }
+
+  async function onLogin(event) {
+    event.preventDefault();
+    const form = new FormData(els.loginForm);
+    const candidate = {player: form.get('player'), pin: String(form.get('pin')).trim()};
+    if (!candidate.player || !candidate.pin) return;
+    saveSession(candidate);
+    await loadState();
+    if (!state?.player_valid) saveSession(null);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    els.loginForm = document.querySelector('[data-login-form]');
+    els.player = els.loginForm.player;
+    els.pin = els.loginForm.pin;
+    els.loginState = document.querySelector('[data-login-state]');
+    els.events = document.querySelector('[data-events]');
+    els.settlement = document.querySelector('[data-settlement]');
+    els.sync = document.querySelector('[data-sync-state]');
+    els.admin = document.querySelector('[data-admin-zone]');
+    els.adminForm = document.querySelector('[data-admin-form]');
+    els.adminEvent = els.adminForm.event;
+    session = getSession();
+    els.loginForm.addEventListener('submit', onLogin);
+    document.querySelector('[data-refresh]').addEventListener('click', () => loadState());
+    els.adminForm.addEventListener('submit', onAdminSubmit);
+    loadState();
+    pollTimer = setInterval(() => loadState({quiet: true}), POLL_MS);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadState({quiet: true}); });
+  });
+})();
