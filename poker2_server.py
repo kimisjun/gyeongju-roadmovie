@@ -66,7 +66,16 @@ def act(g,who,d):
    amount=int(d.get('amount') or 0)
    if amount<=0:raise ValueError('추가 베팅 금액을 입력하세요.')
    paid=put(g,p,amount);log(g,f'{who} {paid:,} 추가 베팅');g['acted']=[]
-  else:paid=put(g,p,p['stack']);log(g,f'{who} {paid:,} 올인');g['acted']=[]
+  else:
+   opponents=[x for x in g['players'] if x is not p and not x['folded']]
+   can_match_more=any(not x['allIn'] and x['stack']>0 for x in opponents)
+   if can_match_more:amount=p['stack'];label='올인'
+   else:
+    target=max((x['roundBet'] for x in opponents),default=p['roundBet'])
+    amount=max(0,target-p['roundBet']);label='유효 올인 콜'
+   paid=put(g,p,amount)
+   if not can_match_more:p['allIn']=True
+   log(g,f'{who} {paid:,} {label}');g['acted']=[]
   if who not in g['acted']:g['acted'].append(who)
   nextturn(g);finishround(g)
  elif typ=='reveal':
