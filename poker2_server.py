@@ -78,13 +78,20 @@ def act(g,who,d):
   blind(g)
  elif typ=='rebuy-request':
   a=int(d.get('amount') or 0)
-  if a<=0:raise ValueError('리바이 금액을 입력하세요.')
-  p['pendingRebuy']=a;log(g,f'{who} 리바이 {a:,}칩 요청')
+  if a<=0:raise ValueError('대출 금액을 입력하세요.')
+  p['pendingRebuy']=a;log(g,f'{who} 대출 {a:,}칩 요청')
  elif typ=='rebuy-approve':
   if not host:raise ValueError('은준만 승인할 수 있습니다.')
   q=g['players'][NAMES.index(d.get('target'))];a=q['pendingRebuy']
-  if not a:raise ValueError('요청이 없습니다.')
-  q['stack']+=a;q['rebuy']+=a;q['pendingRebuy']=0;q['allIn']=False;log(g,f"{q['name']} 리바이 {a:,}칩 승인")
+  if not a:raise ValueError('대출 요청이 없습니다.')
+  q['stack']+=a;q['rebuy']+=a;q['pendingRebuy']=0;q['allIn']=False;log(g,f"{q['name']} 대출 {a:,}칩 승인")
+ elif typ=='tip':
+  target=d.get('target');a=int(d.get('amount') or 0)
+  if target not in NAMES or target==who:raise ValueError('팁을 받을 친구를 선택하세요.')
+  if a<=0:raise ValueError('팁 금액을 입력하세요.')
+  if a>p['stack']:raise ValueError('보유 잔액보다 많은 팁은 줄 수 없습니다.')
+  q=g['players'][NAMES.index(target)];p['stack']-=a;q['stack']+=a
+  log(g,f'{who} → {target} 팁 {a:,}칩')
  elif typ=='reset':
   if not host:raise ValueError('은준만 초기화할 수 있습니다.')
   return fresh()
