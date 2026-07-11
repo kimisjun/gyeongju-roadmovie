@@ -3,10 +3,10 @@ import json, os, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 STATE='/Users/kimisjun/Desktop/gyeongju-roadmovie/.poker-live-state.json'
-NAMES=['은준','준형','진성','형태']; HOST='은준'; lock=threading.RLock()
+NAMES=['은준','준형','진성']; HOST='은준'; lock=threading.RLock()
 def fresh():
  p=[{'name':x,'stack':10000,'roundBet':0,'folded':False,'allIn':False,'rebuy':0,'pendingRebuy':0} for x in NAMES]
- g={'hand':1,'street':0,'dealer':0,'pot':0,'smallBlind':100,'bigBlind':200,'turn':3,'players':p,'log':[],'updated':time.time()}
+ g={'hand':1,'street':0,'dealer':0,'pot':0,'smallBlind':100,'bigBlind':200,'turn':3%len(p),'players':p,'log':[],'updated':time.time()}
  put(g,p[1],100);put(g,p[2],200);addlog(g,'준형 SB 100 · 진성 BB 200');return g
 def load():
  try:
