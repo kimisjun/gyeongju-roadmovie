@@ -34,8 +34,18 @@ def rounddone(g):
  if not actionable:return True
  high=max(p['roundBet'] for p in live)
  return all(p['name'] in g['acted'] and p['roundBet']==high for p in actionable)
+def refund_unmatched(g):
+ live=[p for p in g['players'] if not p['folded']]
+ if len(live)<2:return 0
+ ranked=sorted(live,key=lambda p:p['roundBet'],reverse=True)
+ if ranked[0]['roundBet']<=ranked[1]['roundBet']:return 0
+ refund=ranked[0]['roundBet']-ranked[1]['roundBet']
+ ranked[0]['roundBet']-=refund;ranked[0]['stack']+=refund;g['pot']-=refund
+ log(g,f"{ranked[0]['name']} 미매칭 올인 {refund:,}칩 자동 반환")
+ return refund
 def finishround(g):
  if not rounddone(g):return
+ refund_unmatched(g)
  g['turn']=None
  if len([p for p in g['players'] if not p['folded']])<=1 or g['street']==3:g['stage']='showdown';log(g,'베팅 종료 · 승자 선택')
  else:g['stage']='reveal';log(g,['','플롭 3장 공개 대기','턴 1장 공개 대기','리버 1장 공개 대기'][g['street']+1])
@@ -64,9 +74,15 @@ def act(g,who,d):
   if g['stage']!='reveal':raise ValueError('현재 베팅 라운드가 끝나지 않았습니다.')
   g['street']+=1;g['stage']='betting';g['acted']=[]
   for x in g['players']:x['roundBet']=0
-  g['turn']=(g['dealer']+1)%len(NAMES)
-  while not canact(g,g['turn']):nextturn(g)
   log(g,['','FLOP 3장 공개','TURN 1장 공개','RIVER 1장 공개'][g['street']])
+  actionable=[i for i in range(len(NAMES)) if canact(g,i)]
+  if not actionable:
+   g['turn']=None
+   if g['street']==3:g['stage']='showdown';log(g,'올인 런아웃 종료 · 승자 선택')
+   else:g['stage']='reveal';log(g,['','플롭 3장 공개 대기','턴 1장 공개 대기','리버 1장 공개 대기'][g['street']+1])
+  else:
+   g['turn']=(g['dealer']+1)%len(NAMES)
+   while g['turn'] not in actionable:nextturn(g)
  elif typ=='award':
   if not host:raise ValueError('은준만 승자를 지정할 수 있습니다.')
   wins=d.get('winners') or []
