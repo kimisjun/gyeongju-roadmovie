@@ -126,8 +126,11 @@
       : event.status === 'cancelled' ? '<div class="event-notice">취소된 경기입니다.</div>'
       : event.locked ? '<div class="event-notice locked">경기가 시작되어 선택이 공개됐습니다.</div>'
       : `<div class="event-notice">${state.player_valid ? '선택 버튼을 다시 누르면 경기 전까지 변경할 수 있습니다.' : '이름을 선택하면 예측할 수 있습니다.'}</div>`;
+    const displayTitle = event.slug === 'msi-2026-final' && event.option_a && event.option_b
+      ? `${event.option_a} vs ${event.option_b}`
+      : event.title;
     return `<article class="pickem-card ${event.status}">
-      <div class="pickem-card-head"><div><span class="eyebrow red">${esc(event.category)}</span><h3>${esc(event.title)}</h3></div><span class="event-status ${event.locked ? 'locked' : ''}">${statusText(event)}</span></div>
+      <div class="pickem-card-head"><div><span class="eyebrow red">${esc(event.category)}</span><h3>${esc(displayTitle)}</h3></div><span class="event-status ${event.locked ? 'locked' : ''}">${statusText(event)}</span></div>
       <div class="event-time"><b>${esc(koreanTime(event.starts_at))}</b><span>${esc(countdown(event.starts_at))}</span></div>
       <div class="pick-progress"><span>제출 ${esc(event.submitted_count)} / ${state.players.length}</span><i style="--progress:${state.players.length ? Number(event.submitted_count) / state.players.length * 100 : 0}%"></i></div>
       <div class="pick-options">${pickButtons || '<p class="muted">선택지가 아직 없습니다.</p>'}</div>
